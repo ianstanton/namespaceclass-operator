@@ -11,8 +11,10 @@ spec:
     kind: NamespaceClass
     listKind: NamespaceClassList
     plural: namespaceclasses
+    shortNames:
+    - nsclass
     singular: namespaceclass
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1
     schema:
