@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: namespaceclasses.stanton.sh
+  name: namespaceclasses.akuity.io
 spec:
-  group: stanton.sh
+  group: akuity.io
   names:
     kind: NamespaceClass
     listKind: NamespaceClassList

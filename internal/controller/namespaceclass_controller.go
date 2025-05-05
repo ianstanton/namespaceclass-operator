@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	stantonshv1 "stanton.sh/namespace-class/api/v1"
+	akuityiov1 "akuity.io/namespace-class/api/v1"
 )
 
 // NamespaceClassReconciler reconciles a NamespaceClass object
@@ -33,9 +33,9 @@ type NamespaceClassReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=stanton.sh,resources=namespaceclasses,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=stanton.sh,resources=namespaceclasses/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=stanton.sh,resources=namespaceclasses/finalizers,verbs=update
+// +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -57,7 +57,7 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 // SetupWithManager sets up the controller with the Manager.
 func (r *NamespaceClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&stantonshv1.NamespaceClass{}).
+		For(&akuityiov1.NamespaceClass{}).
 		Named("namespaceclass").
 		Complete(r)
 }

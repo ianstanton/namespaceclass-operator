@@ -1,4 +1,4 @@
-module stanton.sh/namespace-class
+module akuity.io/namespace-class
 
 go 1.23.0
 
