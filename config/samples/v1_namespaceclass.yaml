@@ -1,4 +1,4 @@
-apiVersion: stanton.sh/v1
+apiVersion: akuity.io/v1
 kind: NamespaceClass
 metadata:
   labels:

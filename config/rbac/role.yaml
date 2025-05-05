@@ -5,7 +5,7 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - stanton.sh
+  - akuity.io
   resources:
   - namespaceclasses
   verbs:
@@ -17,13 +17,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - stanton.sh
+  - akuity.io
   resources:
   - namespaceclasses/finalizers
   verbs:
   - update
 - apiGroups:
-  - stanton.sh
+  - akuity.io
   resources:
   - namespaceclasses/status
   verbs:
