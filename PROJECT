@@ -7,4 +7,13 @@ layout:
 - go.kubebuilder.io/v4
 projectName: namespace-class
 repo: stanton.sh/namespace-class
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: stanton.sh
+  kind: NamespaceClass
+  path: stanton.sh/namespace-class/api/v1
+  version: v1
 version: "3"
