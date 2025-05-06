@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -36,6 +37,13 @@ type NamespaceClassReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+// NewDecoder is used for deserializing RawExtension objects from the
+// NamespaceClassSpec.Resources field.
+func NewDecoder(scheme *runtime.Scheme) runtime.Decoder {
+	codecs := serializer.NewCodecFactory(scheme)
+	return codecs.UniversalDeserializer()
+}
+
 const NamespaceClassLabel = "namespaceclass.akuity.io/name"
 
 // +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses,verbs=get;list;watch;create;update;patch;delete
@@ -44,13 +52,6 @@ const NamespaceClassLabel = "namespaceclass.akuity.io/name"
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the NamespaceClass object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.4/pkg/reconcile
 func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = logf.FromContext(ctx)
 
@@ -73,6 +74,33 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		// The namespace has the label, so for now we'll log the value
 		logf.FromContext(ctx).Info("Namespace has a namespaceclass label", "labelValue", labelValue)
+
+		// Check for the NamespaceClass resource with the same name as the label value
+		namespaceClass := &akuityiov1.NamespaceClass{}
+
+		// Log error if the NamespaceClass is not found
+		if err := r.Get(ctx, client.ObjectKey{Name: labelValue}, namespaceClass); err != nil {
+			logf.FromContext(ctx).Error(err, "cannot find NamespaceClass with name", "name", labelValue)
+			return ctrl.Result{}, nil
+		}
+
+		// Log the NamespaceClass we found
+		logf.FromContext(ctx).Info("Found NamespaceClass", "namespaceClass", namespaceClass)
+
+		// Reconcile the resources defined in the NamespaceClass
+		decoder := NewDecoder(r.Scheme)
+		for _, resource := range namespaceClass.Spec.Resources {
+			logf.FromContext(ctx).Info("Reconciling resource", "resource", resource)
+			obj, gvk, err := decoder.Decode(resource.Raw, nil, nil)
+			if err != nil {
+				// Log error if deserializing fails
+				logf.FromContext(ctx).Error(err, "failed to decode resource", "resource", resource)
+				continue
+			}
+			// Log deserialized resource for now
+			logf.FromContext(ctx).Info("Decoded resource", "gvk", gvk, "object", obj)
+		}
+
 	}
 
 	return ctrl.Result{}, nil
