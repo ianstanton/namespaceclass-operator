@@ -19,6 +19,9 @@ package controller
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +35,8 @@ type NamespaceClassReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
+
+const NamespaceClassLabel = "namespaceclass.akuity.io/name"
 
 // +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses/status,verbs=get;update;patch
@@ -49,7 +54,26 @@ type NamespaceClassReconciler struct {
 func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// Watch for changes to Namespace resources and check for the presence of the
+	// "namespaceclass.akuity.io/name" label.
+	namespace := &corev1.Namespace{}
+	if err := r.Get(ctx, req.NamespacedName, namespace); client.IgnoreNotFound(err) != nil {
+		logf.FromContext(ctx).Error(err, "unable to fetch Namespace")
+		return ctrl.Result{}, err
+	} else if err != nil {
+		logf.FromContext(ctx).Info("Namespace not found, ignoring")
+		return ctrl.Result{}, nil
+	}
+
+	// Check if the namespace has the "namespaceclass.akuity.io/name" label
+	labelValue, ok := namespace.Labels[NamespaceClassLabel]
+	if !ok {
+		// The namespace does not have the label, so we can ignore it
+		return ctrl.Result{}, nil
+	} else {
+		// The namespace has the label, so for now we'll log the value
+		logf.FromContext(ctx).Info("Namespace has a namespaceclass label", "labelValue", labelValue)
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -58,6 +82,7 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *NamespaceClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&akuityiov1.NamespaceClass{}).
+		Watches(&corev1.Namespace{}, &handler.EnqueueRequestForObject{}).
 		Named("namespaceclass").
 		Complete(r)
 }
