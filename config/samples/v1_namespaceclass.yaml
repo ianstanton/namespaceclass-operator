@@ -6,4 +6,32 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: namespaceclass-sample
 spec:
-  # TODO(user): Add fields here
+  resources:
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: configmap-sample
+      namespace: default
+    - apiVersion: v1
+      kind: Secret
+      metadata:
+          name: secret-sample
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: deployment-sample
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: deployment-sample
+        template:
+          metadata:
+            labels:
+              app: deployment-sample
+          spec:
+            containers:
+              - name: nginx
+                image: nginx:latest
+                ports:
+                  - containerPort: 80
