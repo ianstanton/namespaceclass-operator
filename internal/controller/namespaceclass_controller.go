@@ -108,7 +108,6 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 
 			err = r.CreateOrUpdateResource(ctx, typedObj, *namespace)
-
 			if err != nil {
 				logf.FromContext(ctx).Error(err, "failed to reconcile resource", "resource", typedObj)
 				return ctrl.Result{}, err
