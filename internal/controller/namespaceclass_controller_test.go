@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"time"
+
 	akuityiov1 "akuity.io/namespace-class/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -9,7 +11,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"time"
 )
 
 var _ = Describe("NamespaceclassController", func() {
