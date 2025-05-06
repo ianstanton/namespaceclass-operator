@@ -107,45 +107,8 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				continue
 			}
 
-			// Check if the resource already exists
-			err = r.Get(ctx, client.ObjectKey{Namespace: namespace.Name, Name: typedObj.GetName()}, typedObj)
-			if err == nil {
-				// Resource already exists, so we update it
-				if err := r.Client.Update(ctx, typedObj); err != nil {
-					logf.FromContext(ctx).Error(err, "failed to update resource", "resource", typedObj)
-					return ctrl.Result{}, err
-				}
-				continue
-			}
+			err = r.CreateOrUpdateResource(ctx, typedObj, *namespace)
 
-			_, err = ctrl.CreateOrUpdate(ctx, r.Client, typedObj, func() error {
-				// Set the owner reference to the NamespaceClass
-				if err := ctrl.SetControllerReference(namespaceClass, typedObj, r.Scheme); err != nil {
-					return err
-				}
-				// Set the namespace to the one being reconciled
-				typedObj.SetNamespace(namespace.Name)
-				// Set the labels to include the NamespaceClass label
-				labels := typedObj.GetLabels()
-				if labels == nil {
-					labels = make(map[string]string)
-				}
-				labels[NamespaceClassLabel] = namespaceClass.Name
-				typedObj.SetLabels(labels)
-
-				// Create or update the resource
-				if err := r.Client.Create(ctx, typedObj); err != nil {
-					if meta.IsNoMatchError(err) {
-						logf.FromContext(ctx).Error(err, "resource type not supported", "resource", resource)
-						return nil
-					}
-					logf.FromContext(ctx).Error(err, "failed to create resource", "resource", typedObj)
-					return err
-				}
-				logf.FromContext(ctx).Info("Resource created", "resource", typedObj)
-
-				return nil
-			})
 			if err != nil {
 				logf.FromContext(ctx).Error(err, "failed to reconcile resource", "resource", typedObj)
 				return ctrl.Result{}, err
@@ -153,6 +116,42 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 	return ctrl.Result{}, nil
+}
+
+// CreateOrUpdateResource creates or updates the resource in the namespace
+func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, obj client.Object, namespace corev1.Namespace) error {
+	// Check if the resource already exists
+	err := r.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.GetName()}, obj)
+	if err == nil {
+		// Resource already exists, so we update it
+		return r.Update(ctx, obj)
+	} else if meta.IsNoMatchError(err) {
+		return nil
+	}
+
+	// Resource does not exist, so we create it
+	// Set the namespace to the one being reconciled
+	obj.SetNamespace(namespace.Name)
+	// Set the owner reference to the NamespaceClass
+	if err := ctrl.SetControllerReference(&namespace, obj, r.Scheme); err != nil {
+		return err
+	}
+	return r.Create(ctx, obj)
+}
+
+// DeleteResource deletes the resource in the namespace
+func (r *NamespaceClassReconciler) DeleteResource(ctx context.Context, obj client.Object) error {
+	// Check if the resource exists
+	err := r.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.GetName()}, obj)
+	if err != nil {
+		if meta.IsNoMatchError(err) {
+			return nil
+		}
+		return err
+	}
+
+	// Resource exists, so we delete it
+	return r.Delete(ctx, obj)
 }
 
 // SetupWithManager sets up the controller with the Manager.
