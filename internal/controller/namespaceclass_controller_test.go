@@ -196,7 +196,7 @@ var _ = Describe("NamespaceclassController", func() {
 				Expect(k8sClient.Update(ctx, latestNamespace)).Should(Succeed())
 
 				// Wait for the controller to reconcile, sleep for now
-				time.Sleep(1 * time.Second)
+				time.Sleep(2 * time.Second)
 
 				// Check if the Secret is created
 				secret := &corev1.Secret{
