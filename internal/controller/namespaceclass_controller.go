@@ -19,11 +19,13 @@ package controller
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/api/meta"
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -59,16 +61,16 @@ const NamespaceClassLabel = "namespaceclass.akuity.io/name"
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
 	// Watch for changes to Namespace resources and check for the presence of the
 	// "namespaceclass.akuity.io/name" label.
 	namespace := &corev1.Namespace{}
 	if err := r.Get(ctx, req.NamespacedName, namespace); client.IgnoreNotFound(err) != nil {
-		logf.FromContext(ctx).Error(err, "unable to fetch Namespace")
+		log.Error(err, "unable to fetch Namespace")
 		return ctrl.Result{}, err
 	} else if err != nil {
-		logf.FromContext(ctx).Info("Namespace not found, ignoring")
+		log.Info("Namespace not found, ignoring")
 		return ctrl.Result{}, nil
 	}
 
@@ -79,19 +81,19 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	} else {
 		// The namespace has the label, so for now we'll log the value
-		logf.FromContext(ctx).Info("Namespace has a namespaceclass label", "labelValue", labelValue)
+		log.Info("Namespace has a namespaceclass label", "labelValue", labelValue)
 
 		// Check for the NamespaceClass resource with the same name as the label value
 		namespaceClass := &akuityiov1.NamespaceClass{}
 
 		// Log error if the NamespaceClass is not found
 		if err := r.Get(ctx, client.ObjectKey{Name: labelValue}, namespaceClass); err != nil {
-			logf.FromContext(ctx).Error(err, "cannot find NamespaceClass with name", "name", labelValue)
+			log.Error(err, "cannot find NamespaceClass with name", "name", labelValue)
 			return ctrl.Result{}, nil
 		}
 
 		// Log the NamespaceClass we found
-		logf.FromContext(ctx).Info("Found NamespaceClass", "namespaceClass", namespaceClass)
+		log.Info("Found NamespaceClass", "namespaceClass", namespaceClass)
 
 		// Set annotation on the namespace to indicate the current NamespaceClass it is using
 		if namespace.Annotations == nil {
@@ -101,7 +103,7 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
 			// Update the namespace with the new annotation
 			if err := r.Update(ctx, namespace); err != nil {
-				logf.FromContext(ctx).Error(err, "failed to update namespace with annotation", "namespace", namespace.Name)
+				log.Error(err, "failed to update namespace with annotation", "namespace", namespace.Name)
 				return ctrl.Result{}, err
 			}
 		}
@@ -111,21 +113,21 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			// Cleanup resources that are not part of the current NamespaceClass
 			err := r.CleanupResources(ctx, namespace, currentClass)
 			if err != nil {
-				logf.FromContext(ctx).Error(err, "failed to cleanup resources", "namespaceClass", namespaceClass)
+				log.Error(err, "failed to cleanup resources", "namespaceClass", namespaceClass)
 				return ctrl.Result{}, err
 			}
 			// Update the annotation to the new NamespaceClass
 			namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
 			if err := r.Update(ctx, namespace); err != nil {
-				logf.FromContext(ctx).Error(err, "failed to update namespace with new annotation", "namespace", namespace.Name)
+				log.Error(err, "failed to update namespace with new annotation", "namespace", namespace.Name)
 				return ctrl.Result{}, err
 			}
 		}
 
 		// CreateOrUpdate the resources defined in the NamespaceClass
-		err := r.CreateOrUpdateResource(ctx, namespaceClass, *namespace)
+		err := r.CreateOrUpdateResource(ctx, namespaceClass, *namespace, &log)
 		if err != nil {
-			logf.FromContext(ctx).Error(err, "failed to create or update resource", "namespaceClass", namespaceClass)
+			log.Error(err, "failed to create or update resource", "namespaceClass", namespaceClass)
 			return ctrl.Result{}, err
 		}
 	}
@@ -133,21 +135,21 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 // CreateOrUpdateResource creates or updates the resource in the namespace
-func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, namespaceClass *akuityiov1.NamespaceClass, namespace corev1.Namespace) error {
+func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, namespaceClass *akuityiov1.NamespaceClass, namespace corev1.Namespace, log *logr.Logger) error {
 	decoder := NewDecoder(r.Scheme)
 	for _, resource := range namespaceClass.Spec.Resources {
-		logf.FromContext(ctx).Info("Reconciling resource", "resource", resource)
+		log.Info("Reconciling resource", "resource", resource)
 		obj, _, err := decoder.Decode(resource.Raw, nil, nil)
 		if err != nil {
 			// Log error if deserializing fails
-			logf.FromContext(ctx).Error(err, "failed to decode resource", "resource", resource)
+			log.Error(err, "failed to decode resource", "resource", resource)
 			continue
 		}
 		// Create or update the resource in the namespace
 		// Type assertion to implement client.Object interface
 		typedObj, ok := obj.(client.Object)
 		if !ok {
-			logf.FromContext(ctx).Error(nil, "could not implement client.Object interface via type assertion", "resource", resource)
+			log.Error(nil, "could not implement client.Object interface via type assertion", "resource", resource)
 			continue
 		}
 
@@ -155,9 +157,11 @@ func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, n
 		err = r.Get(ctx, client.ObjectKey{Namespace: namespace.Name, Name: typedObj.GetName()}, typedObj)
 		if err == nil {
 			// Resource already exists, so we update it
-			return r.Update(ctx, typedObj)
-		} else if meta.IsNoMatchError(err) {
-			return nil
+			err := r.Update(ctx, typedObj)
+			if err != nil {
+				return err
+			}
+			continue
 		}
 
 		// Resource does not exist, so we create it
@@ -239,6 +243,32 @@ func (r *NamespaceClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&akuityiov1.NamespaceClass{}).
 		Watches(&corev1.Namespace{}, &handler.EnqueueRequestForObject{}).
+		Watches(
+			&akuityiov1.NamespaceClass{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				log := logf.FromContext(ctx)
+				log.Info("NamespaceClass changed, enqueueing namespaces", "namespaceclass", obj.GetName())
+				namespaceList := &corev1.NamespaceList{}
+				if err := r.List(ctx, namespaceList); err != nil {
+					log.Error(err, "failed to list namespaces")
+					return nil
+				}
+
+				var requests []reconcile.Request
+				for _, namespace := range namespaceList.Items {
+					if namespace.Labels[NamespaceClassLabel] == obj.GetName() {
+						log.Info("Enqueueing namespace", "namespace", namespace.Name)
+						requests = append(requests, reconcile.Request{
+							NamespacedName: types.NamespacedName{
+								Namespace: "",
+								Name:      namespace.Name,
+							},
+						})
+					}
+				}
+				return requests
+			}),
+		).
 		Named("namespaceclass").
 		Complete(r)
 }
