@@ -210,5 +210,173 @@ var _ = Describe("NamespaceclassController", func() {
 				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "your-app", Name: "deny-all-ingress"}, networkPolicy)).Should(Not(Succeed()))
 			})
 		})
+		Context("When updating a NamespaceClass", func() {
+			It("Should apply the new resources and clean up the old for each namespace using it", func(ctx SpecContext) {
+				// Create a new NamespaceClass
+				nsclass := &akuityiov1.NamespaceClass{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "NamespaceClass",
+						APIVersion: "akuity.io/v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "data-team",
+					},
+					Spec: akuityiov1.NamespaceClassSpec{
+						Resources: []runtime.RawExtension{
+							{
+								Object: &networkingv1.NetworkPolicy{
+									TypeMeta: metav1.TypeMeta{
+										Kind:       "NetworkPolicy",
+										APIVersion: "networking.k8s.io/v1",
+									},
+									ObjectMeta: metav1.ObjectMeta{
+										Name: "allow-all-ingress",
+									},
+									Spec: networkingv1.NetworkPolicySpec{
+										PodSelector: metav1.LabelSelector{},
+										Ingress:     []networkingv1.NetworkPolicyIngressRule{},
+									},
+								},
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, nsclass)).Should(Succeed())
+
+				// Create two Namespaces with the label 'namespaceclass.akuity.io/name: public-network'
+				namespace1 := &corev1.Namespace{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Namespace",
+						APIVersion: "v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "namespace1",
+						Labels: map[string]string{
+							"namespaceclass.akuity.io/name": "data-team",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, namespace1)).Should(Succeed())
+
+				namespace2 := &corev1.Namespace{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Namespace",
+						APIVersion: "v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "namespace2",
+						Labels: map[string]string{
+							"namespaceclass.akuity.io/name": "data-team",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, namespace2)).Should(Succeed())
+
+				// Check both namespaces have the NetworkPolicy defined in the NamespaceClass
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace1", Name: "allow-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace2", Name: "allow-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+
+				// Update the NamespaceClass to add a secret and a ConfigMap
+				nsclass.Spec.Resources = append(nsclass.Spec.Resources, runtime.RawExtension{
+					Object: &corev1.Secret{
+						TypeMeta: metav1.TypeMeta{
+							Kind:       "Secret",
+							APIVersion: "v1",
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "image-pull-secret",
+						},
+					},
+				}, runtime.RawExtension{
+					Object: &corev1.ConfigMap{
+						TypeMeta: metav1.TypeMeta{
+							Kind:       "ConfigMap",
+							APIVersion: "v1",
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "app-config",
+						},
+					},
+				})
+				Expect(k8sClient.Update(ctx, nsclass)).Should(Succeed())
+
+				// Check both namespaces have the NetworkPolicy, Secret, and ConfigMap
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace1", Name: "allow-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace1", Name: "image-pull-secret"}, &corev1.Secret{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace1", Name: "app-config"}, &corev1.ConfigMap{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace2", Name: "allow-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace2", Name: "image-pull-secret"}, &corev1.Secret{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace2", Name: "app-config"}, &corev1.ConfigMap{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+
+				// Update the NamespaceClass to remove the Secret
+				nsclass.Spec.Resources = []runtime.RawExtension{
+					{
+						Object: &networkingv1.NetworkPolicy{
+							TypeMeta: metav1.TypeMeta{
+								Kind:       "NetworkPolicy",
+								APIVersion: "networking.k8s.io/v1",
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "allow-all-ingress",
+							},
+							Spec: networkingv1.NetworkPolicySpec{
+								PodSelector: metav1.LabelSelector{},
+								Ingress:     []networkingv1.NetworkPolicyIngressRule{},
+							},
+						},
+					},
+					{
+						Object: &corev1.ConfigMap{
+							TypeMeta: metav1.TypeMeta{
+								Kind:       "ConfigMap",
+								APIVersion: "v1",
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "app-config",
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Update(ctx, nsclass)).Should(Succeed())
+
+				// Check both namespaces have the NetworkPolicy and ConfigMap but not the Secret
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace1", Name: "allow-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace1", Name: "image-pull-secret"}, &corev1.Secret{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Not(Succeed()))
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace1", Name: "app-config"}, &corev1.ConfigMap{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace2", Name: "allow-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace2", Name: "image-pull-secret"}, &corev1.Secret{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Not(Succeed()))
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace2", Name: "app-config"}, &corev1.ConfigMap{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+			})
+		})
 	})
 })
