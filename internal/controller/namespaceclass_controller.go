@@ -20,7 +20,10 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/discovery"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -36,7 +39,8 @@ import (
 // NamespaceClassReconciler reconciles a NamespaceClass object
 type NamespaceClassReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme          *runtime.Scheme
+	DiscoveryClient *discovery.DiscoveryClient
 }
 
 // NewDecoder is used for deserializing RawExtension objects from the
@@ -89,68 +93,145 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// Log the NamespaceClass we found
 		logf.FromContext(ctx).Info("Found NamespaceClass", "namespaceClass", namespaceClass)
 
-		// Reconcile the resources defined in the NamespaceClass
-		decoder := NewDecoder(r.Scheme)
-		for _, resource := range namespaceClass.Spec.Resources {
-			logf.FromContext(ctx).Info("Reconciling resource", "resource", resource)
-			obj, _, err := decoder.Decode(resource.Raw, nil, nil)
-			if err != nil {
-				// Log error if deserializing fails
-				logf.FromContext(ctx).Error(err, "failed to decode resource", "resource", resource)
-				continue
-			}
-			// Create or update the resource in the namespace
-			// Type assertion to implement client.Object interface
-			typedObj, ok := obj.(client.Object)
-			if !ok {
-				logf.FromContext(ctx).Error(nil, "could not implement client.Object interface via type assertion", "resource", resource)
-				continue
-			}
-
-			err = r.CreateOrUpdateResource(ctx, typedObj, *namespace)
-			if err != nil {
-				logf.FromContext(ctx).Error(err, "failed to reconcile resource", "resource", typedObj)
+		// Set annotation on the namespace to indicate the current NamespaceClass it is using
+		if namespace.Annotations == nil {
+			namespace.Annotations = make(map[string]string)
+		}
+		if _, exists := namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"]; !exists {
+			namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
+			// Update the namespace with the new annotation
+			if err := r.Update(ctx, namespace); err != nil {
+				logf.FromContext(ctx).Error(err, "failed to update namespace with annotation", "namespace", namespace.Name)
 				return ctrl.Result{}, err
 			}
+		}
+
+		// If the current-namespace-class annotation does not match the NamespaceClass, clean up
+		if currentClass, exists := namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"]; exists && currentClass != namespaceClass.Name {
+			// Cleanup resources that are not part of the current NamespaceClass
+			err := r.CleanupResources(ctx, namespace, currentClass)
+			if err != nil {
+				logf.FromContext(ctx).Error(err, "failed to cleanup resources", "namespaceClass", namespaceClass)
+				return ctrl.Result{}, err
+			}
+			// Update the annotation to the new NamespaceClass
+			namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
+			if err := r.Update(ctx, namespace); err != nil {
+				logf.FromContext(ctx).Error(err, "failed to update namespace with new annotation", "namespace", namespace.Name)
+				return ctrl.Result{}, err
+			}
+		}
+
+		// CreateOrUpdate the resources defined in the NamespaceClass
+		err := r.CreateOrUpdateResource(ctx, namespaceClass, *namespace)
+		if err != nil {
+			logf.FromContext(ctx).Error(err, "failed to create or update resource", "namespaceClass", namespaceClass)
+			return ctrl.Result{}, err
 		}
 	}
 	return ctrl.Result{}, nil
 }
 
 // CreateOrUpdateResource creates or updates the resource in the namespace
-func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, obj client.Object, namespace corev1.Namespace) error {
-	// Check if the resource already exists
-	err := r.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.GetName()}, obj)
-	if err == nil {
-		// Resource already exists, so we update it
-		return r.Update(ctx, obj)
-	} else if meta.IsNoMatchError(err) {
-		return nil
-	}
+func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, namespaceClass *akuityiov1.NamespaceClass, namespace corev1.Namespace) error {
+	decoder := NewDecoder(r.Scheme)
+	for _, resource := range namespaceClass.Spec.Resources {
+		logf.FromContext(ctx).Info("Reconciling resource", "resource", resource)
+		obj, _, err := decoder.Decode(resource.Raw, nil, nil)
+		if err != nil {
+			// Log error if deserializing fails
+			logf.FromContext(ctx).Error(err, "failed to decode resource", "resource", resource)
+			continue
+		}
+		// Create or update the resource in the namespace
+		// Type assertion to implement client.Object interface
+		typedObj, ok := obj.(client.Object)
+		if !ok {
+			logf.FromContext(ctx).Error(nil, "could not implement client.Object interface via type assertion", "resource", resource)
+			continue
+		}
 
-	// Resource does not exist, so we create it
-	// Set the namespace to the one being reconciled
-	obj.SetNamespace(namespace.Name)
-	// Set the owner reference to the NamespaceClass
-	if err := ctrl.SetControllerReference(&namespace, obj, r.Scheme); err != nil {
-		return err
-	}
-	return r.Create(ctx, obj)
-}
-
-// DeleteResource deletes the resource in the namespace
-func (r *NamespaceClassReconciler) DeleteResource(ctx context.Context, obj client.Object) error {
-	// Check if the resource exists
-	err := r.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.GetName()}, obj)
-	if err != nil {
-		if meta.IsNoMatchError(err) {
+		// Check if the resource already exists
+		err = r.Get(ctx, client.ObjectKey{Namespace: namespace.Name, Name: typedObj.GetName()}, typedObj)
+		if err == nil {
+			// Resource already exists, so we update it
+			return r.Update(ctx, typedObj)
+		} else if meta.IsNoMatchError(err) {
 			return nil
 		}
+
+		// Resource does not exist, so we create it
+		// Set the namespace to the one being reconciled
+		typedObj.SetNamespace(namespace.Name)
+		// Set the owner reference to the NamespaceClass
+		if err := ctrl.SetControllerReference(&namespace, typedObj, r.Scheme); err != nil {
+			return err
+		}
+		// Set the NamespaceClass annotation on the resource
+		if typedObj.GetAnnotations() == nil {
+			typedObj.SetAnnotations(make(map[string]string))
+		}
+		typedObj.GetAnnotations()[NamespaceClassLabel] = namespaceClass.Name
+		// Create the resource
+		err = r.Create(ctx, typedObj)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CleanupResources cleans up the resources in the namespace that have an annotation NamespaceClassLabel that does not match the
+// current NamespaceClass parameter
+func (r *NamespaceClassReconciler) CleanupResources(ctx context.Context, namespace *corev1.Namespace, currentClass string) error {
+	// Set up DiscoveryClient for getting arbitrary resource types
+	discoveryClient := r.DiscoveryClient
+	resources, err := discoveryClient.ServerPreferredResources()
+	if err != nil {
 		return err
 	}
 
-	// Resource exists, so we delete it
-	return r.Delete(ctx, obj)
+	for _, resourceList := range resources {
+		gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
+		if err != nil {
+			return err
+		}
+
+		for _, resource := range resourceList.APIResources {
+			if !resource.Namespaced {
+				continue
+			}
+
+			gvk := schema.GroupVersionKind{
+				Group:   gv.Group,
+				Version: gv.Version,
+				Kind:    resource.Kind,
+			}
+
+			list := &unstructured.UnstructuredList{}
+			list.SetGroupVersionKind(gvk)
+
+			err = r.List(ctx, list, client.InNamespace(namespace.Name))
+			if err != nil {
+				continue
+			}
+
+			for _, item := range list.Items {
+				annotations := item.GetAnnotations()
+				if annotations != nil {
+					// Check if the resource was created under the old NamespaceClass
+					if value, ok := annotations["namespaceclass.akuity.io/name"]; ok && value == currentClass {
+						err = r.Delete(ctx, &item)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
