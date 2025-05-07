@@ -18,6 +18,10 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -124,10 +128,31 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 		}
 
-		// CreateOrUpdate the resources defined in the NamespaceClass
-		err := r.CreateOrUpdateResource(ctx, namespaceClass, *namespace, &log)
+		// Get the current NamespaceClass
+		namespaceClass = &akuityiov1.NamespaceClass{}
+		if err := r.Get(ctx, client.ObjectKey{Name: labelValue}, namespaceClass); err != nil {
+			log.Error(err, "cannot find NamespaceClass with name", "name", labelValue)
+			return ctrl.Result{}, nil
+		}
+
+		// Get the current resources in the namespace that are managed by the NamespaceClass
+		currentResources, err := r.getCurrentResources(ctx, namespace, namespaceClass.Name)
+		if err != nil {
+			log.Error(err, "failed to get current resources", "namespace", namespace.Name)
+			return ctrl.Result{}, err
+		}
+
+		// Create or update the resources defined in the NamespaceClass
+		err = r.CreateOrUpdateResource(ctx, namespaceClass, *namespace, &log)
 		if err != nil {
 			log.Error(err, "failed to create or update resource", "namespaceClass", namespaceClass)
+			return ctrl.Result{}, err
+		}
+
+		// Delete resources that are no longer in the NamespaceClass
+		err = r.deleteUnusedResources(ctx, namespace, namespaceClass, currentResources)
+		if err != nil {
+			log.Error(err, "failed to delete unused resources", "namespaceClass", namespaceClass)
 			return ctrl.Result{}, err
 		}
 	}
@@ -183,6 +208,123 @@ func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, n
 		}
 	}
 	return nil
+}
+
+func (r *NamespaceClassReconciler) getCurrentResources(ctx context.Context, namespace *corev1.Namespace, namespaceClassName string) ([]string, error) {
+	// Set up DiscoveryClient for getting arbitrary resource types
+	discoveryClient := r.DiscoveryClient
+	resources, err := discoveryClient.ServerPreferredResources()
+	if err != nil {
+		return nil, err
+	}
+
+	var currentResources []string
+	for _, resourceList := range resources {
+		gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, resource := range resourceList.APIResources {
+			if !resource.Namespaced {
+				continue
+			}
+
+			gvk := schema.GroupVersionKind{
+				Group:   gv.Group,
+				Version: gv.Version,
+				Kind:    resource.Kind,
+			}
+
+			list := &unstructured.UnstructuredList{}
+			list.SetGroupVersionKind(gvk)
+
+			err = r.List(ctx, list, client.InNamespace(namespace.Name))
+			if err != nil {
+				continue
+			}
+
+			for _, item := range list.Items {
+				annotations := item.GetAnnotations()
+				if annotations != nil {
+					// Check if the resource is managed by the NamespaceClass
+					if value, ok := annotations[NamespaceClassLabel]; ok && value == namespaceClassName {
+						currentResources = append(currentResources, item.GetKind()+"/"+item.GetName())
+					}
+				}
+			}
+		}
+	}
+
+	return currentResources, nil
+}
+
+func (r *NamespaceClassReconciler) deleteUnusedResources(ctx context.Context, namespace *corev1.Namespace, namespaceClass *akuityiov1.NamespaceClass, currentResources []string) error {
+	// Get the resources defined in the NamespaceClass
+	desiredResources := make(map[string]bool)
+	decoder := NewDecoder(r.Scheme)
+	for _, resource := range namespaceClass.Spec.Resources {
+		obj, _, err := decoder.Decode(resource.Raw, nil, nil)
+		if err != nil {
+			return err
+		}
+		desiredResources = addResourceToMap(desiredResources, obj)
+	}
+
+	// Delete resources that are no longer defined in the NamespaceClass
+	for _, resource := range currentResources {
+		if !desiredResources[resource] {
+			parts := strings.Split(resource, "/")
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid resource string: %s", resource)
+			}
+			resourceParts := strings.Split(parts[0], ".")
+			gvk := schema.GroupVersionKind{}
+			if len(resourceParts) == 1 {
+				gvk.Kind = resourceParts[0]
+			} else {
+				gvk.Group = strings.Join(resourceParts[:len(resourceParts)-1], ".")
+				gvk.Kind = resourceParts[len(resourceParts)-1]
+			}
+
+			// Get the GVK for the resource
+			discoveryClient := r.DiscoveryClient
+			resources, err := discoveryClient.ServerPreferredResources()
+			if err != nil {
+				return err
+			}
+			for _, resourceList := range resources {
+				gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
+				if err != nil {
+					return err
+				}
+				for _, apiResource := range resourceList.APIResources {
+					if apiResource.Kind == gvk.Kind {
+						gvk.Group = gv.Group
+						gvk.Version = gv.Version
+						break
+					}
+				}
+			}
+
+			// Delete the resource
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(gvk)
+			obj.SetNamespace(namespace.Name)
+			obj.SetName(parts[1])
+			err = r.Delete(ctx, obj)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func addResourceToMap(resources map[string]bool, obj runtime.Object) map[string]bool {
+	resources[obj.GetObjectKind().GroupVersionKind().Kind+"/"+obj.(metav1.Object).GetName()] = true
+	return resources
 }
 
 // CleanupResources cleans up the resources in the namespace that have an annotation NamespaceClassLabel that does not match the
