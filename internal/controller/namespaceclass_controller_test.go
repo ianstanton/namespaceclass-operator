@@ -175,7 +175,7 @@ var _ = Describe("NamespaceclassController", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, namespace)).Should(Succeed())
-				
+
 				// Wait for the controller to reconcile, sleep for now
 				time.Sleep(1 * time.Second)
 
