@@ -90,52 +90,56 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		logf.FromContext(ctx).Info("Found NamespaceClass", "namespaceClass", namespaceClass)
 
 		// Reconcile the resources defined in the NamespaceClass
-		decoder := NewDecoder(r.Scheme)
-		for _, resource := range namespaceClass.Spec.Resources {
-			logf.FromContext(ctx).Info("Reconciling resource", "resource", resource)
-			obj, _, err := decoder.Decode(resource.Raw, nil, nil)
-			if err != nil {
-				// Log error if deserializing fails
-				logf.FromContext(ctx).Error(err, "failed to decode resource", "resource", resource)
-				continue
-			}
-			// Create or update the resource in the namespace
-			// Type assertion to implement client.Object interface
-			typedObj, ok := obj.(client.Object)
-			if !ok {
-				logf.FromContext(ctx).Error(nil, "could not implement client.Object interface via type assertion", "resource", resource)
-				continue
-			}
-
-			err = r.CreateOrUpdateResource(ctx, typedObj, *namespace)
-			if err != nil {
-				logf.FromContext(ctx).Error(err, "failed to reconcile resource", "resource", typedObj)
-				return ctrl.Result{}, err
-			}
+		err := r.CreateOrUpdateResource(ctx, namespaceClass, *namespace)
+		if err != nil {
+			logf.FromContext(ctx).Error(err, "failed to create or update resource", "namespaceClass", namespaceClass)
+			return ctrl.Result{}, err
 		}
 	}
 	return ctrl.Result{}, nil
 }
 
 // CreateOrUpdateResource creates or updates the resource in the namespace
-func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, obj client.Object, namespace corev1.Namespace) error {
-	// Check if the resource already exists
-	err := r.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: obj.GetName()}, obj)
-	if err == nil {
-		// Resource already exists, so we update it
-		return r.Update(ctx, obj)
-	} else if meta.IsNoMatchError(err) {
-		return nil
-	}
+func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, namespaceClass *akuityiov1.NamespaceClass, namespace corev1.Namespace) error {
+	decoder := NewDecoder(r.Scheme)
+	for _, resource := range namespaceClass.Spec.Resources {
+		logf.FromContext(ctx).Info("Reconciling resource", "resource", resource)
+		obj, _, err := decoder.Decode(resource.Raw, nil, nil)
+		if err != nil {
+			// Log error if deserializing fails
+			logf.FromContext(ctx).Error(err, "failed to decode resource", "resource", resource)
+			continue
+		}
+		// Create or update the resource in the namespace
+		// Type assertion to implement client.Object interface
+		typedObj, ok := obj.(client.Object)
+		if !ok {
+			logf.FromContext(ctx).Error(nil, "could not implement client.Object interface via type assertion", "resource", resource)
+			continue
+		}
 
-	// Resource does not exist, so we create it
-	// Set the namespace to the one being reconciled
-	obj.SetNamespace(namespace.Name)
-	// Set the owner reference to the NamespaceClass
-	if err := ctrl.SetControllerReference(&namespace, obj, r.Scheme); err != nil {
-		return err
+		// Check if the resource already exists
+		err = r.Get(ctx, client.ObjectKey{Namespace: typedObj.GetNamespace(), Name: typedObj.GetName()}, typedObj)
+		if err == nil {
+			// Resource already exists, so we update it
+			return r.Update(ctx, typedObj)
+		} else if meta.IsNoMatchError(err) {
+			return nil
+		}
+
+		// Resource does not exist, so we create it
+		// Set the namespace to the one being reconciled
+		typedObj.SetNamespace(namespace.Name)
+		// Set the owner reference to the NamespaceClass
+		if err := ctrl.SetControllerReference(&namespace, typedObj, r.Scheme); err != nil {
+			return err
+		}
+		err = r.Create(ctx, typedObj)
+		if err != nil {
+			return err
+		}
 	}
-	return r.Create(ctx, obj)
+	return nil
 }
 
 // DeleteResource deletes the resource in the namespace
