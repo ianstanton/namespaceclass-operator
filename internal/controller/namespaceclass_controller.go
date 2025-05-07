@@ -39,7 +39,8 @@ import (
 // NamespaceClassReconciler reconciles a NamespaceClass object
 type NamespaceClassReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme          *runtime.Scheme
+	DiscoveryClient *discovery.DiscoveryClient
 }
 
 // NewDecoder is used for deserializing RawExtension objects from the
@@ -184,9 +185,7 @@ func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, n
 // current NamespaceClass parameter
 func (r *NamespaceClassReconciler) CleanupResources(ctx context.Context, namespace *corev1.Namespace, currentClass string) error {
 	// Set up DiscoveryClient for getting arbitrary resource types
-	cfg := ctrl.GetConfigOrDie()
-
-	discoveryClient, _ := discovery.NewDiscoveryClientForConfig(cfg)
+	discoveryClient := r.DiscoveryClient
 	resources, err := discoveryClient.ServerPreferredResources()
 	if err != nil {
 		return err

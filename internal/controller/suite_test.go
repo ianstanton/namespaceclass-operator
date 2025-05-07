@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"k8s.io/client-go/discovery"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -72,9 +74,17 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
+	// Set up discovery client
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(k8sManager.GetConfig())
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "unable to create discovery client")
+		os.Exit(1)
+	}
+
 	err = (&NamespaceClassReconciler{
-		Client: k8sManager.GetClient(),
-		Scheme: k8sManager.GetScheme(),
+		Client:          k8sManager.GetClient(),
+		Scheme:          k8sManager.GetScheme(),
+		DiscoveryClient: discoveryClient,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
