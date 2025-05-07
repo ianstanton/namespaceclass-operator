@@ -87,14 +87,9 @@ var _ = Describe("NamespaceclassController", func() {
 				}
 				Expect(k8sClient.Create(ctx, namespace)).Should(Succeed())
 				// Check if the NetworkPolicy is created
-				networkPolicy := &networkingv1.NetworkPolicy{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "allow-all-ingress",
-					},
-				}
-				// Wait for the controller to reconcile, sleep for now
-				time.Sleep(1 * time.Second)
-				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "my-app", Name: "allow-all-ingress"}, networkPolicy)).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "my-app", Name: "allow-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
 			})
 		})
 		Context("When switching NamespaceClass", func() {
@@ -176,16 +171,10 @@ var _ = Describe("NamespaceclassController", func() {
 				}
 				Expect(k8sClient.Create(ctx, namespace)).Should(Succeed())
 
-				// Wait for the controller to reconcile, sleep for now
-				time.Sleep(1 * time.Second)
-
 				// Check if the NetworkPolicy is created
-				networkPolicy := &networkingv1.NetworkPolicy{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "deny-all-ingress",
-					},
-				}
-				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "your-app", Name: "deny-all-ingress"}, networkPolicy)).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "your-app", Name: "deny-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
 
 				// Fetch the latest version of the Namespace
 				latestNamespace := &corev1.Namespace{}
@@ -195,19 +184,15 @@ var _ = Describe("NamespaceclassController", func() {
 				latestNamespace.Labels["namespaceclass.akuity.io/name"] = "image-pull-secret"
 				Expect(k8sClient.Update(ctx, latestNamespace)).Should(Succeed())
 
-				// Wait for the controller to reconcile, sleep for now
-				time.Sleep(2 * time.Second)
-
 				// Check if the Secret is created
-				secret := &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "image-pull-secret",
-					},
-				}
-				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "your-app", Name: "image-pull-secret"}, secret)).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "your-app", Name: "image-pull-secret"}, &corev1.Secret{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
 
 				// Check if the old NetworkPolicy is deleted
-				Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "your-app", Name: "deny-all-ingress"}, networkPolicy)).Should(Not(Succeed()))
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "your-app", Name: "deny-all-ingress"}, &networkingv1.NetworkPolicy{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Not(Succeed()))
 			})
 		})
 		Context("When updating a NamespaceClass", func() {
