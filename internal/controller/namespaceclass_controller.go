@@ -19,13 +19,11 @@ package controller
 import (
 	"context"
 
-	"k8s.io/client-go/discovery"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
-
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/discovery"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -186,10 +184,8 @@ func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, n
 // current NamespaceClass parameter
 func (r *NamespaceClassReconciler) CleanupResources(ctx context.Context, namespace *corev1.Namespace, currentClass string) error {
 	// Set up DiscoveryClient for getting arbitrary resource types
-	cfg, err := config.GetConfig()
-	if err != nil {
-		return err
-	}
+	cfg := ctrl.GetConfigOrDie()
+
 	discoveryClient, _ := discovery.NewDiscoveryClientForConfig(cfg)
 	resources, err := discoveryClient.ServerPreferredResources()
 	if err != nil {
