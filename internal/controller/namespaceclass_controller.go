@@ -87,6 +87,11 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// The namespace has the label, so for now we'll log the value
 		log.Info("Namespace has a namespaceclass label", "labelValue", labelValue)
 
+		if namespace.DeletionTimestamp != nil {
+			// Namespace is being deleted, skip creating or updating resources
+			return ctrl.Result{}, nil
+		}
+
 		// Check for the NamespaceClass resource with the same name as the label value
 		namespaceClass := &akuityiov1.NamespaceClass{}
 
