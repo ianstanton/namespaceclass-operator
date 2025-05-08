@@ -78,90 +78,90 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// Check if the namespace has the "namespaceclass.akuity.io/name" label
-	labelValue, ok := namespace.Labels[NamespaceClassLabel]
-	if !ok {
-		// The namespace does not have the label, so we can ignore it
+	// Check if the Namespace is being deleted
+	if namespace.DeletionTimestamp != nil {
+		log.Info("Namespace is being deleted, skipping")
 		return ctrl.Result{}, nil
-	} else {
-		// The namespace has the label, so for now we'll log the value
-		log.Info("Namespace has a namespaceclass label", "labelValue", labelValue)
+	}
 
-		if namespace.DeletionTimestamp != nil {
-			// Namespace is being deleted, skip creating or updating resources
-			return ctrl.Result{}, nil
+	// Check if the Namespace has the "namespaceclass.akuity.io/name" label
+	if !r.namespaceHasLabel(namespace) {
+		return ctrl.Result{}, nil
+	}
+
+	// Reconcile the NamespaceClass resources
+	namespaceClassName := namespace.Labels[NamespaceClassLabel]
+	if err := r.reconcileNamespaceClass(ctx, namespace, namespaceClassName, &log); err != nil {
+		log.Error(err, "failed to reconcile NamespaceClass", "namespaceClassName", namespaceClassName)
+		return ctrl.Result{}, err
+	}
+	log.Info("Successfully reconciled NamespaceClass", "namespaceClassName", namespaceClassName)
+
+	return ctrl.Result{}, nil
+}
+
+func (r *NamespaceClassReconciler) namespaceHasLabel(namespace *corev1.Namespace) bool {
+	_, ok := namespace.Labels[NamespaceClassLabel]
+	return ok
+}
+
+func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, namespace *corev1.Namespace, namespaceClassName string, log *logr.Logger) error {
+	// Get the current NamespaceClass
+	namespaceClass := &akuityiov1.NamespaceClass{}
+	if err := r.Get(ctx, client.ObjectKey{Name: namespaceClassName}, namespaceClass); err != nil {
+		return err
+	}
+
+	// Update namespace annotations
+	if err := r.updateNamespaceAnnotations(ctx, namespace, namespaceClass); err != nil {
+		return err
+	}
+
+	// If the current-namespace-class annotation does not match the NamespaceClass, clean up
+	if currentClass, exists := namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"]; exists && currentClass != namespaceClass.Name {
+		// Cleanup resources that are not part of the current NamespaceClass
+		if err := r.CleanupResources(ctx, namespace, currentClass); err != nil {
+			return err
 		}
-
-		// Check for the NamespaceClass resource with the same name as the label value
-		namespaceClass := &akuityiov1.NamespaceClass{}
-
-		// Log error if the NamespaceClass is not found
-		if err := r.Get(ctx, client.ObjectKey{Name: labelValue}, namespaceClass); err != nil {
-			log.Error(err, "cannot find NamespaceClass with name", "name", labelValue)
-			return ctrl.Result{}, nil
-		}
-
-		// Log the NamespaceClass we found
-		log.Info("Found NamespaceClass", "namespaceClass", namespaceClass)
-
-		// Set annotation on the namespace to indicate the current NamespaceClass it is using
-		if namespace.Annotations == nil {
-			namespace.Annotations = make(map[string]string)
-		}
-		if _, exists := namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"]; !exists {
-			namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
-			// Update the namespace with the new annotation
-			if err := r.Update(ctx, namespace); err != nil {
-				log.Error(err, "failed to update namespace with annotation", "namespace", namespace.Name)
-				return ctrl.Result{}, err
-			}
-		}
-
-		// If the current-namespace-class annotation does not match the NamespaceClass, clean up
-		if currentClass, exists := namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"]; exists && currentClass != namespaceClass.Name {
-			// Cleanup resources that are not part of the current NamespaceClass
-			err := r.CleanupResources(ctx, namespace, currentClass)
-			if err != nil {
-				log.Error(err, "failed to cleanup resources", "namespaceClass", namespaceClass)
-				return ctrl.Result{}, err
-			}
-			// Update the annotation to the new NamespaceClass
-			namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
-			if err := r.Update(ctx, namespace); err != nil {
-				log.Error(err, "failed to update namespace with new annotation", "namespace", namespace.Name)
-				return ctrl.Result{}, err
-			}
-		}
-
-		// Get the current NamespaceClass
-		namespaceClass = &akuityiov1.NamespaceClass{}
-		if err := r.Get(ctx, client.ObjectKey{Name: labelValue}, namespaceClass); err != nil {
-			log.Error(err, "cannot find NamespaceClass with name", "name", labelValue)
-			return ctrl.Result{}, nil
-		}
-
-		// Get the current resources in the namespace that are managed by the NamespaceClass
-		currentResources, err := r.getCurrentResources(ctx, namespace, namespaceClass.Name)
-		if err != nil {
-			log.Error(err, "failed to get current resources", "namespace", namespace.Name)
-			return ctrl.Result{}, err
-		}
-
-		// Create or update the resources defined in the NamespaceClass
-		err = r.CreateOrUpdateResource(ctx, namespaceClass, *namespace, &log)
-		if err != nil {
-			log.Error(err, "failed to create or update resource", "namespaceClass", namespaceClass)
-			return ctrl.Result{}, err
-		}
-
-		// Delete resources that are no longer in the NamespaceClass
-		err = r.deleteUnusedResources(ctx, namespace, namespaceClass, currentResources)
-		if err != nil {
-			log.Error(err, "failed to delete unused resources", "namespaceClass", namespaceClass)
-			return ctrl.Result{}, err
+		// Update the annotation to the new NamespaceClass
+		namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
+		if err := r.Update(ctx, namespace); err != nil {
+			return err
 		}
 	}
-	return ctrl.Result{}, nil
+
+	// Get the current resources in the namespace that are managed by the NamespaceClass
+	currentResources, err := r.getCurrentResources(ctx, namespace, namespaceClass.Name)
+	if err != nil {
+		log.Error(err, "failed to get current resources", "namespace", namespace.Name)
+		return err
+	}
+
+	// Create or update resources
+	if err := r.CreateOrUpdateResource(ctx, namespaceClass, *namespace, log); err != nil {
+		return err
+	}
+
+	// Delete unused resources
+	if err := r.deleteUnusedResources(ctx, namespace, namespaceClass, currentResources); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *NamespaceClassReconciler) updateNamespaceAnnotations(ctx context.Context, namespace *corev1.Namespace, namespaceClass *akuityiov1.NamespaceClass) error {
+	if namespace.Annotations == nil {
+		namespace.Annotations = make(map[string]string)
+	}
+	if _, exists := namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"]; !exists {
+		namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
+		// Update the namespace with the new annotation
+		if err := r.Update(ctx, namespace); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CreateOrUpdateResource creates or updates the resource in the namespace
