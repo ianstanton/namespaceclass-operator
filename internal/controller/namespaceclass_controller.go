@@ -212,6 +212,7 @@ func (r *NamespaceClassReconciler) createOrUpdateResource(ctx context.Context, n
 			}
 		} else {
 			// Resource already exists, so we update it
+			patch := client.MergeFrom(current.DeepCopy())
 			current.Object["spec"] = u.Object["spec"]
 			current.SetAnnotations(map[string]string{NamespaceClassLabel: namespaceClass.Name})
 			ownerRef := metav1.OwnerReference{
@@ -222,9 +223,9 @@ func (r *NamespaceClassReconciler) createOrUpdateResource(ctx context.Context, n
 				Controller: func() *bool { b := true; return &b }(),
 			}
 			current.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
-			err = r.Update(ctx, current)
+			err = r.Patch(ctx, current, patch)
 			if err != nil {
-				log.Error(err, "failed to update resource", "resource", resource)
+				log.Error(err, "failed to patch resource", "resource", resource)
 				return err
 			}
 		}
