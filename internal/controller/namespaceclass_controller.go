@@ -103,11 +103,13 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
+// namespaceHasLabel checks if the Namespace has the "namespaceclass.akuity.io/name" label
 func (r *NamespaceClassReconciler) namespaceHasLabel(namespace *corev1.Namespace) bool {
 	_, ok := namespace.Labels[NamespaceClassLabel]
 	return ok
 }
 
+// reconcileNamespaceClass reconciles the NamespaceClass resources for the given Namespace
 func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, namespace *corev1.Namespace, namespaceClassName string, log *logr.Logger) error {
 	// Get the current NamespaceClass
 	namespaceClass := &akuityiov1.NamespaceClass{}
@@ -123,7 +125,7 @@ func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, 
 	// If the current-namespace-class annotation does not match the NamespaceClass, clean up
 	if currentClass, exists := namespace.Annotations[CurrentNamespaceClassAnnotation]; exists && currentClass != namespaceClass.Name {
 		// Cleanup resources that are not part of the current NamespaceClass
-		if err := r.CleanupResources(ctx, namespace, currentClass); err != nil {
+		if err := r.cleanupResources(ctx, namespace, currentClass); err != nil {
 			return err
 		}
 		// Update the annotation to the new NamespaceClass
@@ -141,7 +143,7 @@ func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, 
 	}
 
 	// Create or update resources
-	if err := r.CreateOrUpdateResource(ctx, namespaceClass, *namespace, log); err != nil {
+	if err := r.createOrUpdateResource(ctx, namespaceClass, *namespace, log); err != nil {
 		return err
 	}
 
@@ -153,6 +155,7 @@ func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, 
 	return nil
 }
 
+// updateNamespaceAnnotations updates the namespace annotations with the current NamespaceClass
 func (r *NamespaceClassReconciler) updateNamespaceAnnotations(ctx context.Context, namespace *corev1.Namespace, namespaceClass *akuityiov1.NamespaceClass) error {
 	if namespace.Annotations == nil {
 		namespace.Annotations = make(map[string]string)
@@ -167,8 +170,8 @@ func (r *NamespaceClassReconciler) updateNamespaceAnnotations(ctx context.Contex
 	return nil
 }
 
-// CreateOrUpdateResource creates or updates the resource in the namespace
-func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, namespaceClass *akuityiov1.NamespaceClass, namespace corev1.Namespace, log *logr.Logger) error {
+// createOrUpdateResource creates or updates the resource in the namespace
+func (r *NamespaceClassReconciler) createOrUpdateResource(ctx context.Context, namespaceClass *akuityiov1.NamespaceClass, namespace corev1.Namespace, log *logr.Logger) error {
 	decoder := NewDecoder(r.Scheme)
 	for _, resource := range namespaceClass.Spec.Resources {
 		log.Info("Reconciling resource", "resource", resource)
@@ -229,6 +232,7 @@ func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, n
 	return nil
 }
 
+// getCurrentResources gets the current resources in the namespace that are managed by the NamespaceClass
 func (r *NamespaceClassReconciler) getCurrentResources(ctx context.Context, namespace *corev1.Namespace, namespaceClassName string) ([]string, error) {
 	// Set up DiscoveryClient for getting arbitrary resource types
 	discoveryClient := r.DiscoveryClient
@@ -278,6 +282,7 @@ func (r *NamespaceClassReconciler) getCurrentResources(ctx context.Context, name
 	return currentResources, nil
 }
 
+// deleteUnusedResources deletes resources in the namespace that are not defined in the NamespaceClass
 func (r *NamespaceClassReconciler) deleteUnusedResources(ctx context.Context, namespace *corev1.Namespace, namespaceClass *akuityiov1.NamespaceClass, currentResources []string) error {
 	// Get the resources defined in the NamespaceClass
 	desiredResources := make(map[string]bool)
@@ -341,14 +346,15 @@ func (r *NamespaceClassReconciler) deleteUnusedResources(ctx context.Context, na
 	return nil
 }
 
+// addResourceToMap adds a resource to a map of desired resources
 func addResourceToMap(resources map[string]bool, obj runtime.Object) map[string]bool {
 	resources[obj.GetObjectKind().GroupVersionKind().Kind+"/"+obj.(metav1.Object).GetName()] = true
 	return resources
 }
 
-// CleanupResources cleans up the resources in the namespace that have an annotation NamespaceClassLabel that does not match the
+// cleanupResources cleans up the resources in the namespace that have an annotation NamespaceClassLabel that does not match the
 // current NamespaceClass parameter
-func (r *NamespaceClassReconciler) CleanupResources(ctx context.Context, namespace *corev1.Namespace, currentClass string) error {
+func (r *NamespaceClassReconciler) cleanupResources(ctx context.Context, namespace *corev1.Namespace, currentClass string) error {
 	// Set up DiscoveryClient for getting arbitrary resource types
 	discoveryClient := r.DiscoveryClient
 	resources, err := discoveryClient.ServerPreferredResources()
