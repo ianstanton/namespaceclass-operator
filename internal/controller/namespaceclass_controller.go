@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"strings"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -164,47 +164,58 @@ func (r *NamespaceClassReconciler) CreateOrUpdateResource(ctx context.Context, n
 	decoder := NewDecoder(r.Scheme)
 	for _, resource := range namespaceClass.Spec.Resources {
 		log.Info("Reconciling resource", "resource", resource)
-		obj, _, err := decoder.Decode(resource.Raw, nil, nil)
+		u := &unstructured.Unstructured{}
+		_, gvk, err := decoder.Decode(resource.Raw, nil, u)
 		if err != nil {
-			// Log error if deserializing fails
 			log.Error(err, "failed to decode resource", "resource", resource)
 			continue
 		}
-		// Create or update the resource in the namespace
-		// Type assertion to implement client.Object interface
-		typedObj, ok := obj.(client.Object)
-		if !ok {
-			log.Error(nil, "could not implement client.Object interface via type assertion", "resource", resource)
-			continue
-		}
+
+		u.SetGroupVersionKind(*gvk)
+		u.SetNamespace(namespace.Name)
+		u.SetName(u.GetName())
 
 		// Check if the resource already exists
-		err = r.Get(ctx, client.ObjectKey{Namespace: namespace.Name, Name: typedObj.GetName()}, typedObj)
-		if err == nil {
-			// Resource already exists, so we update it
-			err := r.Update(ctx, typedObj)
-			if err != nil {
-				return err
-			}
-			continue
+		current := u.DeepCopy()
+		err = r.Get(ctx, client.ObjectKey{Namespace: namespace.Name, Name: u.GetName()}, current)
+		if err != nil && !apierrors.IsNotFound(err) {
+			log.Error(err, "failed to get resource", "resource", resource)
+			return err
 		}
 
-		// Resource does not exist, so we create it
-		// Set the namespace to the one being reconciled
-		typedObj.SetNamespace(namespace.Name)
-		// Set the owner reference to the NamespaceClass
-		if err := ctrl.SetControllerReference(&namespace, typedObj, r.Scheme); err != nil {
-			return err
-		}
-		// Set the NamespaceClass annotation on the resource
-		if typedObj.GetAnnotations() == nil {
-			typedObj.SetAnnotations(make(map[string]string))
-		}
-		typedObj.GetAnnotations()[NamespaceClassLabel] = namespaceClass.Name
-		// Create the resource
-		err = r.Create(ctx, typedObj)
-		if err != nil {
-			return err
+		if apierrors.IsNotFound(err) {
+			// Resource does not exist, so we create it
+			u.SetAnnotations(map[string]string{NamespaceClassLabel: namespaceClass.Name})
+			ownerRef := metav1.OwnerReference{
+				APIVersion: akuityiov1.GroupVersion.String(),
+				Kind:       "NamespaceClass",
+				Name:       namespaceClass.Name,
+				UID:        namespaceClass.UID,
+				Controller: func() *bool { b := true; return &b }(),
+			}
+			u.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
+			err = r.Create(ctx, u)
+			if err != nil {
+				log.Error(err, "failed to create resource", "resource", resource)
+				return err
+			}
+		} else {
+			// Resource already exists, so we update it
+			current.Object["spec"] = u.Object["spec"]
+			current.SetAnnotations(map[string]string{NamespaceClassLabel: namespaceClass.Name})
+			ownerRef := metav1.OwnerReference{
+				APIVersion: akuityiov1.GroupVersion.String(),
+				Kind:       "NamespaceClass",
+				Name:       namespaceClass.Name,
+				UID:        namespaceClass.UID,
+				Controller: func() *bool { b := true; return &b }(),
+			}
+			current.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
+			err = r.Update(ctx, current)
+			if err != nil {
+				log.Error(err, "failed to update resource", "resource", resource)
+				return err
+			}
 		}
 	}
 	return nil
