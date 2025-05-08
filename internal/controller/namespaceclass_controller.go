@@ -56,7 +56,10 @@ func NewDecoder(scheme *runtime.Scheme) runtime.Decoder {
 	return codecs.UniversalDeserializer()
 }
 
-const NamespaceClassLabel = "namespaceclass.akuity.io/name"
+const (
+	NamespaceClassLabel             = "namespaceclass.akuity.io/name"
+	CurrentNamespaceClassAnnotation = "namespaceclass.akuity.io/current-namespace-class"
+)
 
 // +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses/status,verbs=get;update;patch
@@ -118,13 +121,13 @@ func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, 
 	}
 
 	// If the current-namespace-class annotation does not match the NamespaceClass, clean up
-	if currentClass, exists := namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"]; exists && currentClass != namespaceClass.Name {
+	if currentClass, exists := namespace.Annotations[CurrentNamespaceClassAnnotation]; exists && currentClass != namespaceClass.Name {
 		// Cleanup resources that are not part of the current NamespaceClass
 		if err := r.CleanupResources(ctx, namespace, currentClass); err != nil {
 			return err
 		}
 		// Update the annotation to the new NamespaceClass
-		namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
+		namespace.Annotations[CurrentNamespaceClassAnnotation] = namespaceClass.Name
 		if err := r.Update(ctx, namespace); err != nil {
 			return err
 		}
@@ -154,8 +157,8 @@ func (r *NamespaceClassReconciler) updateNamespaceAnnotations(ctx context.Contex
 	if namespace.Annotations == nil {
 		namespace.Annotations = make(map[string]string)
 	}
-	if _, exists := namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"]; !exists {
-		namespace.Annotations["namespaceclass.akuity.io/current-namespace-class"] = namespaceClass.Name
+	if _, exists := namespace.Annotations[CurrentNamespaceClassAnnotation]; !exists {
+		namespace.Annotations[CurrentNamespaceClassAnnotation] = namespaceClass.Name
 		// Update the namespace with the new annotation
 		if err := r.Update(ctx, namespace); err != nil {
 			return err
