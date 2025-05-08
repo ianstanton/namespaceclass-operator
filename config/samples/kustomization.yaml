@@ -1,4 +1,6 @@
 ## Append samples of your project ##
 resources:
-- v1_namespaceclass.yaml
+- nsclass-sample.yaml
+- nsclass-private-network.yaml
+- nsclass-public-network.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
