@@ -3,9 +3,12 @@ package controller
 import (
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/json"
+
 	akuityiov1 "akuity.io/namespace-class/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -196,7 +199,7 @@ var _ = Describe("NamespaceclassController", func() {
 			})
 		})
 		Context("When updating a NamespaceClass", func() {
-			It("Should apply the new resources and clean up the old for each namespace using it", func(ctx SpecContext) {
+			It("Should apply the new resources and clean up the old for each namespace using the NamespaceClass", func(ctx SpecContext) {
 				// Create a new NamespaceClass
 				nsclass := &akuityiov1.NamespaceClass{
 					TypeMeta: metav1.TypeMeta{
@@ -362,6 +365,186 @@ var _ = Describe("NamespaceclassController", func() {
 					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "namespace2", Name: "app-config"}, &corev1.ConfigMap{})
 				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
 			})
+			It("Should update existing resources in all namespaces using the NamespaceClass", func(ctx SpecContext) {
+				// Create a NamespaceClass with a Deployment
+				deployment := &appsv1.Deployment{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Deployment",
+						APIVersion: "apps/v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "argo-cd-server",
+					},
+					Spec: appsv1.DeploymentSpec{
+						Replicas: int32Ptr(1),
+						Selector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"app": "argo-cd-server",
+							},
+						},
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"app": "argo-cd-server",
+								},
+							},
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  "argo-cd-server",
+										Image: "argoproj/argocd-server:v2.0.0",
+										Ports: []corev1.ContainerPort{
+											{
+												Name:          "server",
+												ContainerPort: 8080,
+												Protocol:      corev1.ProtocolTCP,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				rawDeployment, err := json.Marshal(deployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				nsclass := &akuityiov1.NamespaceClass{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "NamespaceClass",
+						APIVersion: "akuity.io/v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "argo-cd",
+					},
+					Spec: akuityiov1.NamespaceClassSpec{
+						Resources: []runtime.RawExtension{
+							{
+								Raw: rawDeployment,
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, nsclass)).Should(Succeed())
+
+				// Create a Namespace with the label 'namespaceclass.akuity.io/name: infra-team'
+				namespace1 := &corev1.Namespace{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Namespace",
+						APIVersion: "v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "argo-cd1",
+						Labels: map[string]string{
+							"namespaceclass.akuity.io/name": "argo-cd",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, namespace1)).Should(Succeed())
+
+				// Create a second Namespace
+				namespace2 := &corev1.Namespace{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Namespace",
+						APIVersion: "v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "argo-cd2",
+						Labels: map[string]string{
+							"namespaceclass.akuity.io/name": "argo-cd",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, namespace2)).Should(Succeed())
+
+				// Check both namespaces have the Deployment defined in the NamespaceClass
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "argo-cd1", Name: "argo-cd-server"}, &appsv1.Deployment{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Namespace: "argo-cd2", Name: "argo-cd-server"}, &appsv1.Deployment{})
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+
+				// Check the Deployment replicas are set to 1 in both namespaces
+				Eventually(func() int32 {
+					deployment := &appsv1.Deployment{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "argo-cd1", Name: "argo-cd-server"}, deployment)
+					if err != nil {
+						return 0
+					}
+					return *deployment.Spec.Replicas
+				}, 5*time.Second, 100*time.Millisecond).Should(Equal(int32(1)))
+				Eventually(func() int32 {
+					deployment := &appsv1.Deployment{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "argo-cd2", Name: "argo-cd-server"}, deployment)
+					if err != nil {
+						return 0
+					}
+					return *deployment.Spec.Replicas
+				}, 5*time.Second, 100*time.Millisecond).Should(Equal(int32(1)))
+
+				// Update the NamespaceClass to change the Deployment replicas to 3
+				var updatedDeployment appsv1.Deployment
+				err = json.Unmarshal(nsclass.Spec.Resources[0].Raw, &updatedDeployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				updatedDeployment.Spec.Replicas = int32Ptr(3)
+				updatedRawDeployment, err := json.Marshal(updatedDeployment)
+				Expect(err).NotTo(HaveOccurred())
+
+				nsclass.Spec.Resources[0].Raw = updatedRawDeployment
+				Expect(k8sClient.Update(ctx, nsclass)).Should(Succeed())
+
+				// Check both namespaces have the updated Deployment replicas
+				Eventually(func() int32 {
+					deployment := &appsv1.Deployment{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "argo-cd1", Name: "argo-cd-server"}, deployment)
+					if err != nil {
+						return 0
+					}
+					return *deployment.Spec.Replicas
+				}, 5*time.Second, 100*time.Millisecond).Should(Equal(int32(3)))
+				Eventually(func() int32 {
+					deployment := &appsv1.Deployment{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "argo-cd2", Name: "argo-cd-server"}, deployment)
+					if err != nil {
+						return 0
+					}
+					return *deployment.Spec.Replicas
+				}, 5*time.Second, 100*time.Millisecond).Should(Equal(int32(3)))
+
+				// Update back to 1 replica
+				updatedDeployment.Spec.Replicas = int32Ptr(1)
+				updatedRawDeployment, err = json.Marshal(updatedDeployment)
+				Expect(err).NotTo(HaveOccurred())
+				nsclass.Spec.Resources[0].Raw = updatedRawDeployment
+				Expect(k8sClient.Update(ctx, nsclass)).Should(Succeed())
+
+				// Check both namespaces have the updated Deployment replicas
+				Eventually(func() int32 {
+					deployment := &appsv1.Deployment{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "argo-cd1", Name: "argo-cd-server"}, deployment)
+					if err != nil {
+						return 0
+					}
+					return *deployment.Spec.Replicas
+				}, 5*time.Second, 100*time.Millisecond).Should(Equal(int32(1)))
+				Eventually(func() int32 {
+					deployment := &appsv1.Deployment{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "argo-cd2", Name: "argo-cd-server"}, deployment)
+					if err != nil {
+						return 0
+					}
+					return *deployment.Spec.Replicas
+				}, 5*time.Second, 100*time.Millisecond).Should(Equal(int32(1)))
+			})
 		})
 	})
 })
+
+// int32Ptr is a helper function to convert an int to a pointer to int32 for Deployment replicas
+func int32Ptr(i int) *int32 {
+	i32 := int32(i)
+	return &i32
+}
