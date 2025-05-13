@@ -64,6 +64,7 @@ const (
 // +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses/finalizers,verbs=update
+// +kubebuilder:rbac:groups=*,resources=*,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -114,10 +115,13 @@ func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, 
 	// Get the current NamespaceClass
 	namespaceClass := &akuityiov1.NamespaceClass{}
 	if err := r.Get(ctx, client.ObjectKey{Name: namespaceClassName}, namespaceClass); err != nil {
-		return err
+		if apierrors.IsNotFound(err) {
+			log.Info("NamespaceClass not found, skipping reconciliation", "namespaceClassName", namespaceClassName)
+			return nil
+		}
 	}
 
-	// Update namespace annotations
+	// Update namespace annotations if not present
 	if err := r.updateNamespaceAnnotations(ctx, namespace, namespaceClass); err != nil {
 		return err
 	}
