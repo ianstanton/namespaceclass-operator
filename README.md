@@ -48,7 +48,7 @@ make run
 5. Apply a `NamespaceClass` CRD to the cluster
 Example CRD:
 ```yaml
-apiVersion: akuity.io/v1
+apiVersion: stanton.sh/v1
 kind: NamespaceClass
 metadata:
   labels:
@@ -97,7 +97,7 @@ kind: Namespace
 metadata:
   name: sample
   labels:
-    namespaceclass.akuity.io/name: namespaceclass-sample
+    namespaceclass.stanton.sh/name: namespaceclass-sample
 ```
 
 ```bash

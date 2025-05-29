@@ -5,7 +5,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/json"
 
-	akuityiov1 "akuity.io/namespace-class/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -14,24 +13,25 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	stantonshv1 "stanton.sh/namespace-class/api/v1"
 )
 
 var _ = Describe("NamespaceclassController", func() {
-	var namespaceClass *akuityiov1.NamespaceClass
+	var namespaceClass *stantonshv1.NamespaceClass
 
 	Describe("NamespaceClass", func() {
 		Context("When creating a namespaceclass", func() {
 			It("Should create a namespaceclass object", func() {
-				namespaceClass = &akuityiov1.NamespaceClass{
+				namespaceClass = &stantonshv1.NamespaceClass{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "NamespaceClass",
-						APIVersion: "akuity.io/v1",
+						APIVersion: "stanton.sh/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-namespaceclass",
 						Namespace: "default",
 					},
-					Spec: akuityiov1.NamespaceClassSpec{
+					Spec: stantonshv1.NamespaceClassSpec{
 						Resources: []runtime.RawExtension{},
 					},
 				}
@@ -41,15 +41,15 @@ var _ = Describe("NamespaceclassController", func() {
 		})
 		Context("When creating a Namespace with a valid NamespaceClass label", func() {
 			It("Should create resources defined in the NamespaceClass", func(ctx SpecContext) {
-				nsclass := &akuityiov1.NamespaceClass{
+				nsclass := &stantonshv1.NamespaceClass{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "NamespaceClass",
-						APIVersion: "akuity.io/v1",
+						APIVersion: "stanton.sh/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "public-network",
 					},
-					Spec: akuityiov1.NamespaceClassSpec{
+					Spec: stantonshv1.NamespaceClassSpec{
 						Resources: []runtime.RawExtension{
 							{
 								Object: &networkingv1.NetworkPolicy{
@@ -75,7 +75,7 @@ var _ = Describe("NamespaceclassController", func() {
 				}
 				// Create a NamespaceClass
 				Expect(k8sClient.Create(ctx, nsclass)).Should(Succeed())
-				// Create Namespace with the label 'namespaceclass.akuity.io/name: public-network'
+				// Create Namespace with the label 'namespaceclass.stanton.sh/name: public-network'
 				namespace := &corev1.Namespace{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Namespace",
@@ -84,7 +84,7 @@ var _ = Describe("NamespaceclassController", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "my-app",
 						Labels: map[string]string{
-							"namespaceclass.akuity.io/name": "public-network",
+							"namespaceclass.stanton.sh/name": "public-network",
 						},
 					},
 				}
@@ -98,15 +98,15 @@ var _ = Describe("NamespaceclassController", func() {
 		Context("When switching NamespaceClass", func() {
 			It("Should apply the new resources and clean up the old", func(ctx SpecContext) {
 				// Create a new NamespaceClass
-				nsclass := &akuityiov1.NamespaceClass{
+				nsclass := &stantonshv1.NamespaceClass{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "NamespaceClass",
-						APIVersion: "akuity.io/v1",
+						APIVersion: "stanton.sh/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "private-network",
 					},
-					Spec: akuityiov1.NamespaceClassSpec{
+					Spec: stantonshv1.NamespaceClassSpec{
 						Resources: []runtime.RawExtension{
 							{
 								Object: &networkingv1.NetworkPolicy{
@@ -129,15 +129,15 @@ var _ = Describe("NamespaceclassController", func() {
 				Expect(k8sClient.Create(ctx, nsclass)).Should(Succeed())
 
 				// Create a second NamespaceClass that has a secret for pulling images
-				nsclass2 := &akuityiov1.NamespaceClass{
+				nsclass2 := &stantonshv1.NamespaceClass{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "NamespaceClass",
-						APIVersion: "akuity.io/v1",
+						APIVersion: "stanton.sh/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "image-pull-secret",
 					},
-					Spec: akuityiov1.NamespaceClassSpec{
+					Spec: stantonshv1.NamespaceClassSpec{
 						Resources: []runtime.RawExtension{
 							{
 								Object: &corev1.Secret{
@@ -159,7 +159,7 @@ var _ = Describe("NamespaceclassController", func() {
 				}
 				Expect(k8sClient.Create(ctx, nsclass2)).Should(Succeed())
 
-				// Create a Namespace with the label 'namespaceclass.akuity.io/name: private-network'
+				// Create a Namespace with the label 'namespaceclass.stanton.sh/name: private-network'
 				namespace := &corev1.Namespace{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Namespace",
@@ -168,7 +168,7 @@ var _ = Describe("NamespaceclassController", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "your-app",
 						Labels: map[string]string{
-							"namespaceclass.akuity.io/name": "private-network",
+							"namespaceclass.stanton.sh/name": "private-network",
 						},
 					},
 				}
@@ -184,7 +184,7 @@ var _ = Describe("NamespaceclassController", func() {
 				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: namespace.Name}, latestNamespace)).Should(Succeed())
 
 				// Update the label on the latest version
-				latestNamespace.Labels["namespaceclass.akuity.io/name"] = "image-pull-secret"
+				latestNamespace.Labels["namespaceclass.stanton.sh/name"] = "image-pull-secret"
 				Expect(k8sClient.Update(ctx, latestNamespace)).Should(Succeed())
 
 				// Check if the Secret is created
@@ -201,15 +201,15 @@ var _ = Describe("NamespaceclassController", func() {
 		Context("When updating a NamespaceClass", func() {
 			It("Should apply the new resources and clean up the old for each namespace using the NamespaceClass", func(ctx SpecContext) {
 				// Create a new NamespaceClass
-				nsclass := &akuityiov1.NamespaceClass{
+				nsclass := &stantonshv1.NamespaceClass{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "NamespaceClass",
-						APIVersion: "akuity.io/v1",
+						APIVersion: "stanton.sh/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "data-team",
 					},
-					Spec: akuityiov1.NamespaceClassSpec{
+					Spec: stantonshv1.NamespaceClassSpec{
 						Resources: []runtime.RawExtension{
 							{
 								Object: &networkingv1.NetworkPolicy{
@@ -231,7 +231,7 @@ var _ = Describe("NamespaceclassController", func() {
 				}
 				Expect(k8sClient.Create(ctx, nsclass)).Should(Succeed())
 
-				// Create two Namespaces with the label 'namespaceclass.akuity.io/name: public-network'
+				// Create two Namespaces with the label 'namespaceclass.stanton.sh/name: public-network'
 				namespace1 := &corev1.Namespace{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Namespace",
@@ -240,7 +240,7 @@ var _ = Describe("NamespaceclassController", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "namespace1",
 						Labels: map[string]string{
-							"namespaceclass.akuity.io/name": "data-team",
+							"namespaceclass.stanton.sh/name": "data-team",
 						},
 					},
 				}
@@ -254,7 +254,7 @@ var _ = Describe("NamespaceclassController", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "namespace2",
 						Labels: map[string]string{
-							"namespaceclass.akuity.io/name": "data-team",
+							"namespaceclass.stanton.sh/name": "data-team",
 						},
 					},
 				}
@@ -410,15 +410,15 @@ var _ = Describe("NamespaceclassController", func() {
 				rawDeployment, err := json.Marshal(deployment)
 				Expect(err).NotTo(HaveOccurred())
 
-				nsclass := &akuityiov1.NamespaceClass{
+				nsclass := &stantonshv1.NamespaceClass{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "NamespaceClass",
-						APIVersion: "akuity.io/v1",
+						APIVersion: "stanton.sh/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "argo-cd",
 					},
-					Spec: akuityiov1.NamespaceClassSpec{
+					Spec: stantonshv1.NamespaceClassSpec{
 						Resources: []runtime.RawExtension{
 							{
 								Raw: rawDeployment,
@@ -428,7 +428,7 @@ var _ = Describe("NamespaceclassController", func() {
 				}
 				Expect(k8sClient.Create(ctx, nsclass)).Should(Succeed())
 
-				// Create a Namespace with the label 'namespaceclass.akuity.io/name: infra-team'
+				// Create a Namespace with the label 'namespaceclass.stanton.sh/name: infra-team'
 				namespace1 := &corev1.Namespace{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Namespace",
@@ -437,7 +437,7 @@ var _ = Describe("NamespaceclassController", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "argo-cd1",
 						Labels: map[string]string{
-							"namespaceclass.akuity.io/name": "argo-cd",
+							"namespaceclass.stanton.sh/name": "argo-cd",
 						},
 					},
 				}
@@ -452,7 +452,7 @@ var _ = Describe("NamespaceclassController", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "argo-cd2",
 						Labels: map[string]string{
-							"namespaceclass.akuity.io/name": "argo-cd",
+							"namespaceclass.stanton.sh/name": "argo-cd",
 						},
 					},
 				}

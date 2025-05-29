@@ -2,18 +2,18 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: akuity.io
+domain: stanton.sh
 layout:
 - go.kubebuilder.io/v4
 projectName: namespace-class
-repo: akuity.io/namespace-class
+repo: stanton.sh/namespace-class
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: akuity.io
+  domain: stanton.sh
   kind: NamespaceClass
-  path: akuity.io/namespace-class/api/v1
+  path: stanton.sh/namespace-class/api/v1
   version: v1
 version: "3"

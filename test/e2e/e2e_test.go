@@ -27,7 +27,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"akuity.io/namespace-class/test/utils"
+	"stanton.sh/namespace-class/test/utils"
 )
 
 // namespace where the project is deployed in

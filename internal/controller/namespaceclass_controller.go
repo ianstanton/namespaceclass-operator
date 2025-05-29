@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	akuityiov1 "akuity.io/namespace-class/api/v1"
+	stantonshv1 "stanton.sh/namespace-class/api/v1"
 )
 
 // NamespaceClassReconciler reconciles a NamespaceClass object
@@ -57,13 +57,13 @@ func NewDecoder(scheme *runtime.Scheme) runtime.Decoder {
 }
 
 const (
-	NamespaceClassLabel             = "namespaceclass.akuity.io/name"
-	CurrentNamespaceClassAnnotation = "namespaceclass.akuity.io/current-namespace-class"
+	NamespaceClassLabel             = "namespaceclass.stanton.sh/name"
+	CurrentNamespaceClassAnnotation = "namespaceclass.stanton.sh/current-namespace-class"
 )
 
-// +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=akuity.io,resources=namespaceclasses/finalizers,verbs=update
+// +kubebuilder:rbac:groups=stanton.sh,resources=namespaceclasses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=stanton.sh,resources=namespaceclasses/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=stanton.sh,resources=namespaceclasses/finalizers,verbs=update
 // +kubebuilder:rbac:groups=*,resources=*,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -72,7 +72,7 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	log := logf.FromContext(ctx)
 
 	// Watch for changes to Namespace resources and check for the presence of the
-	// "namespaceclass.akuity.io/name" label.
+	// "namespaceclass.stanton.sh/name" label.
 	namespace := &corev1.Namespace{}
 	if err := r.Get(ctx, req.NamespacedName, namespace); client.IgnoreNotFound(err) != nil {
 		log.Error(err, "unable to fetch Namespace")
@@ -88,7 +88,7 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// Check if the Namespace has the "namespaceclass.akuity.io/name" label
+	// Check if the Namespace has the "namespaceclass.stanton.sh/name" label
 	if !r.namespaceHasLabel(namespace) {
 		return ctrl.Result{}, nil
 	}
@@ -104,7 +104,7 @@ func (r *NamespaceClassReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-// namespaceHasLabel checks if the Namespace has the "namespaceclass.akuity.io/name" label
+// namespaceHasLabel checks if the Namespace has the "namespaceclass.stanton.sh/name" label
 func (r *NamespaceClassReconciler) namespaceHasLabel(namespace *corev1.Namespace) bool {
 	_, ok := namespace.Labels[NamespaceClassLabel]
 	return ok
@@ -113,7 +113,7 @@ func (r *NamespaceClassReconciler) namespaceHasLabel(namespace *corev1.Namespace
 // reconcileNamespaceClass reconciles the NamespaceClass resources for the given Namespace
 func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, namespace *corev1.Namespace, namespaceClassName string, log *logr.Logger) error {
 	// Get the current NamespaceClass
-	namespaceClass := &akuityiov1.NamespaceClass{}
+	namespaceClass := &stantonshv1.NamespaceClass{}
 	if err := r.Get(ctx, client.ObjectKey{Name: namespaceClassName}, namespaceClass); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("NamespaceClass not found, skipping reconciliation", "namespaceClassName", namespaceClassName)
@@ -160,7 +160,7 @@ func (r *NamespaceClassReconciler) reconcileNamespaceClass(ctx context.Context, 
 }
 
 // updateNamespaceAnnotations updates the namespace annotations with the current NamespaceClass
-func (r *NamespaceClassReconciler) updateNamespaceAnnotations(ctx context.Context, namespace *corev1.Namespace, namespaceClass *akuityiov1.NamespaceClass) error {
+func (r *NamespaceClassReconciler) updateNamespaceAnnotations(ctx context.Context, namespace *corev1.Namespace, namespaceClass *stantonshv1.NamespaceClass) error {
 	if namespace.Annotations == nil {
 		namespace.Annotations = make(map[string]string)
 	}
@@ -175,7 +175,7 @@ func (r *NamespaceClassReconciler) updateNamespaceAnnotations(ctx context.Contex
 }
 
 // createOrUpdateResource creates or updates the resource in the namespace
-func (r *NamespaceClassReconciler) createOrUpdateResource(ctx context.Context, namespaceClass *akuityiov1.NamespaceClass, namespace corev1.Namespace, log *logr.Logger) error {
+func (r *NamespaceClassReconciler) createOrUpdateResource(ctx context.Context, namespaceClass *stantonshv1.NamespaceClass, namespace corev1.Namespace, log *logr.Logger) error {
 	decoder := NewDecoder(r.Scheme)
 	for _, resource := range namespaceClass.Spec.Resources {
 		log.Info("Reconciling resource", "resource", resource)
@@ -202,7 +202,7 @@ func (r *NamespaceClassReconciler) createOrUpdateResource(ctx context.Context, n
 			// Resource does not exist, so we create it
 			u.SetAnnotations(map[string]string{NamespaceClassLabel: namespaceClass.Name})
 			ownerRef := metav1.OwnerReference{
-				APIVersion: akuityiov1.GroupVersion.String(),
+				APIVersion: stantonshv1.GroupVersion.String(),
 				Kind:       "NamespaceClass",
 				Name:       namespaceClass.Name,
 				UID:        namespaceClass.UID,
@@ -220,7 +220,7 @@ func (r *NamespaceClassReconciler) createOrUpdateResource(ctx context.Context, n
 			current.Object["spec"] = u.Object["spec"]
 			current.SetAnnotations(map[string]string{NamespaceClassLabel: namespaceClass.Name})
 			ownerRef := metav1.OwnerReference{
-				APIVersion: akuityiov1.GroupVersion.String(),
+				APIVersion: stantonshv1.GroupVersion.String(),
 				Kind:       "NamespaceClass",
 				Name:       namespaceClass.Name,
 				UID:        namespaceClass.UID,
@@ -288,7 +288,7 @@ func (r *NamespaceClassReconciler) getCurrentResources(ctx context.Context, name
 }
 
 // deleteUnusedResources deletes resources in the namespace that are not defined in the NamespaceClass
-func (r *NamespaceClassReconciler) deleteUnusedResources(ctx context.Context, namespace *corev1.Namespace, namespaceClass *akuityiov1.NamespaceClass, currentResources []string) error {
+func (r *NamespaceClassReconciler) deleteUnusedResources(ctx context.Context, namespace *corev1.Namespace, namespaceClass *stantonshv1.NamespaceClass, currentResources []string) error {
 	// Get the resources defined in the NamespaceClass
 	desiredResources := make(map[string]bool)
 	decoder := NewDecoder(r.Scheme)
@@ -396,7 +396,7 @@ func (r *NamespaceClassReconciler) cleanupResources(ctx context.Context, namespa
 				annotations := item.GetAnnotations()
 				if annotations != nil {
 					// Check if the resource was created under the old NamespaceClass
-					if value, ok := annotations["namespaceclass.akuity.io/name"]; ok && value == currentClass {
+					if value, ok := annotations["namespaceclass.stanton.sh/name"]; ok && value == currentClass {
 						err = r.Delete(ctx, &item)
 						if err != nil {
 							return err
@@ -413,10 +413,10 @@ func (r *NamespaceClassReconciler) cleanupResources(ctx context.Context, namespa
 // SetupWithManager sets up the controller with the Manager.
 func (r *NamespaceClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&akuityiov1.NamespaceClass{}).
+		For(&stantonshv1.NamespaceClass{}).
 		Watches(&corev1.Namespace{}, &handler.EnqueueRequestForObject{}).
 		Watches(
-			&akuityiov1.NamespaceClass{},
+			&stantonshv1.NamespaceClass{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				log := logf.FromContext(ctx)
 				log.Info("NamespaceClass changed, enqueueing namespaces", "namespaceclass", obj.GetName())

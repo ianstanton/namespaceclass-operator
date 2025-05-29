@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: sample
   labels:
-    namespaceclass.akuity.io/name: namespaceclass-sample
+    namespaceclass.stanton.sh/name: namespaceclass-sample
