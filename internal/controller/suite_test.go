@@ -20,7 +20,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	akuityiov1 "akuity.io/namespace-class/api/v1"
+	stantonshv1 "stanton.sh/namespace-class/api/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -45,7 +45,7 @@ var _ = BeforeSuite(func() {
 
 	var err error
 
-	err = akuityiov1.AddToScheme(scheme.Scheme)
+	err = stantonshv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

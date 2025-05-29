@@ -39,8 +39,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	akuityiov1 "akuity.io/namespace-class/api/v1"
-	"akuity.io/namespace-class/internal/controller"
+	stantonshv1 "stanton.sh/namespace-class/api/v1"
+	"stanton.sh/namespace-class/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -52,7 +52,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(akuityiov1.AddToScheme(scheme))
+	utilruntime.Must(stantonshv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -186,7 +186,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "d1d19b0b.akuity.io",
+		LeaderElectionID:       "d1d19b0b.stanton.sh",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

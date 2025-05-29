@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: web-portal-public
   labels:
-    namespaceclass.akuity.io/name: public-network
+    namespaceclass.stanton.sh/name: public-network
